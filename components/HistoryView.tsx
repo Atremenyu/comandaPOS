@@ -101,7 +101,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ orders, restaurantName }) => 
                           </div>
                           {item.note && (
                             <span className="text-[9px] italic font-bold text-red-600 mt-1">
-                              > NOTA: {item.note}
+                              &gt; NOTA: {item.note}
                             </span>
                           )}
                         </div>
