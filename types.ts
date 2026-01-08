@@ -5,7 +5,7 @@ export interface Product {
   id: string;
   name: string;
   price: number;
-  category: Category;
+  category: string;
 }
 
 export interface CartItem extends Product {
@@ -18,7 +18,7 @@ export type OrderStatus = 'pending' | 'delivered';
 
 export interface Order {
   id: string;
-  date: string;
+  created_at: string;
   client: string;
   table: string;
   payment: PaymentMethod;
