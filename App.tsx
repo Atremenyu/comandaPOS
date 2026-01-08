@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Order, ViewState, CartItem, PaymentMethod, Category } from './types';
 import { storage } from './services/storage';
-import { INITIAL_PRODUCTS, INITIAL_CATEGORIES, Icons } from './constants';
+import { supabase } from './services/supabase';
+import { INITIAL_CATEGORIES, Icons } from './constants';
+import { startOfDay, endOfDay } from 'date-fns';
 import POSView from './components/POSView';
 import DispatchView from './components/DispatchView';
 import HistoryView from './components/HistoryView';
@@ -12,8 +14,12 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('pos');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]); // For pending orders in dispatch
+  const [dailyOrders, setDailyOrders] = useState<Order[]>([]); // For the history view
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   
   const [restaurantName, setRestaurantName] = useState('Mi Restaurante');
   const [eventType, setEventType] = useState('Evento Gastronómico');
@@ -22,32 +28,80 @@ const App: React.FC = () => {
 
   // Load initial data
   useEffect(() => {
-    const savedProducts = storage.getProducts();
-    const savedCategories = storage.getCategories();
-    const savedOrders = storage.getOrders();
-    const savedName = storage.getRestaurantName();
-    const savedType = storage.getEventType();
+    const fetchData = async () => {
+      // Fetch products from Supabase
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*');
 
-    setProducts(savedProducts.length > 0 ? savedProducts : INITIAL_PRODUCTS);
-    setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
-    setOrders(savedOrders);
-    setRestaurantName(savedName);
-    setEventType(savedType);
-    setIsLoaded(true);
+      if (productsError) {
+        console.error('Error fetching products:', productsError);
+      } else {
+        setProducts(productsData || []);
+      }
+
+      // Fetch today's orders for the history view
+      await fetchOrdersByDate(new Date());
+
+      // Load other data from local storage
+      const savedCategories = storage.getCategories();
+      const savedName = storage.getRestaurantName();
+      const savedType = storage.getEventType();
+
+      setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
+      setRestaurantName(savedName);
+      setEventType(savedType);
+      setIsLoaded(true);
+    };
+
+    fetchData();
   }, []);
+
+  const fetchOrdersByDate = async (date: Date) => {
+    setIsHistoryLoading(true);
+    setSelectedDate(date);
+
+    const start = startOfDay(date);
+    const end = endOfDay(date);
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*, products(*))')
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching daily orders:', error);
+      setDailyOrders([]);
+    } else {
+      // Map the fetched data to the Order type
+      const formattedOrders: Order[] = data.map((order: any) => ({
+        id: order.id,
+        created_at: order.created_at,
+        client: order.client,
+        table: order.table,
+        payment: order.payment,
+        status: order.status,
+        total: order.total,
+        items: order.order_items.map((item: any) => ({
+          id: item.products.id,
+          name: item.products.name,
+          price: item.price,
+          quantity: item.quantity,
+          category: item.products.category,
+          note: item.note || '',
+        })),
+      }));
+      setDailyOrders(formattedOrders);
+    }
+    setIsHistoryLoading(false);
+  };
 
   // Save on changes (individual effects)
   useEffect(() => {
-    if (isLoaded) storage.saveProducts(products);
-  }, [products, isLoaded]);
-
-  useEffect(() => {
     if (isLoaded) storage.saveCategories(categories);
   }, [categories, isLoaded]);
-
-  useEffect(() => {
-    if (isLoaded) storage.saveOrders(orders);
-  }, [orders, isLoaded]);
 
   const restoreDatabase = (data: any) => {
     // 1. Persistencia inmediata y forzada para evitar fallos de renderizado
@@ -102,27 +156,96 @@ const App: React.FC = () => {
     ));
   };
 
-  const createOrder = (client: string, table: string, payment: PaymentMethod) => {
+  const createOrder = async (client: string, table: string, payment: PaymentMethod) => {
     if (cart.length === 0) return;
 
     const finalClient = client.trim() === '' ? 'Mostrador' : client;
     const finalTable = table.trim() === '' ? 'Mostrador' : table;
-
     const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    const newOrder: Order = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      client: finalClient,
-      table: finalTable,
-      payment,
-      status: 'pending',
-      total,
-      items: [...cart],
-    };
 
-    setOrders(prev => [newOrder, ...prev]);
+    if (editingOrderId) {
+      // UPDATE existing order
+      // Step 1: Update the main order details
+      const { data: updatedOrderData, error: updateError } = await supabase
+        .from('orders')
+        .update({ total, client: finalClient, table: finalTable, payment })
+        .eq('id', editingOrderId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Error updating order:', updateError);
+        return;
+      }
+
+      // Step 2: Delete old order items
+      const { error: deleteError } = await supabase
+        .from('order_items')
+        .delete()
+        .eq('order_id', editingOrderId);
+
+      if (deleteError) {
+        console.error('Error deleting old items:', deleteError);
+        return;
+      }
+
+      // Step 3: Insert new order items
+      const newOrderItems = cart.map(item => ({
+        order_id: editingOrderId,
+        product_id: item.id,
+        quantity: item.quantity,
+        price: item.price,
+      }));
+
+      const { error: insertError } = await supabase.from('order_items').insert(newOrderItems);
+      if (insertError) {
+        console.error('Error inserting new items:', insertError);
+        return;
+      }
+
+      // Step 4: Update local state and finish
+      await fetchOrdersByDate(selectedDate); // Refresh the history view
+      setOrders(prev => prev.filter(o => o.id !== editingOrderId)); // Remove from pending if it was there
+
+    } else {
+      // CREATE new order (original logic)
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({ total, client: finalClient, table: finalTable, payment, status: 'pending' })
+        .select()
+        .single();
+
+      if (orderError || !orderData) {
+        console.error('Error creating order:', orderError);
+        return;
+      }
+
+      const newOrderId = orderData.id;
+      const orderItems = cart.map(item => ({
+        order_id: newOrderId,
+        product_id: item.id,
+        quantity: item.quantity,
+        price: item.price,
+      }));
+
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+      if (itemsError) {
+        console.error('Error creating order items:', itemsError);
+        return;
+      }
+
+      const newOrderForState: Order = {
+        id: newOrderId,
+        created_at: orderData.created_at,
+        client: finalClient, table: finalTable, payment,
+        status: 'pending', total, items: [...cart],
+      };
+      setOrders(prev => [newOrderForState, ...prev]);
+    }
+
     setCart([]);
-    setView('dispatch'); 
+    setView('dispatch');
+    setEditingOrderId(null);
   };
 
   const deliverOrder = (orderId: string) => {
@@ -270,7 +393,14 @@ const App: React.FC = () => {
             />
           )}
           {view === 'history' && (
-            <HistoryView orders={orders} restaurantName={restaurantName} />
+            <HistoryView
+              orders={dailyOrders}
+              restaurantName={restaurantName}
+              selectedDate={selectedDate}
+              onDateChange={fetchOrdersByDate}
+              isLoading={isHistoryLoading}
+              onEditOrder={loadOrderForEditing}
+            />
           )}
           {view === 'settings' && (
             <ProductManagement 

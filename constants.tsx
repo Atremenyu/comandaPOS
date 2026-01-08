@@ -1,19 +1,8 @@
 
 import React from 'react';
-import { Product, Category } from './types';
+import { Category } from './types';
 
 export const INITIAL_CATEGORIES: Category[] = ['Comida', 'Bebida', 'Postre', 'Otros'];
-
-export const INITIAL_PRODUCTS: Product[] = [
-  { id: '1', name: 'Hamburguesa Clásica', price: 850, category: 'Comida' },
-  { id: '2', name: 'Papas Fritas XL', price: 450, category: 'Comida' },
-  { id: '3', name: 'Hot Dog Especial', price: 600, category: 'Comida' },
-  { id: '4', name: 'Coca Cola 500ml', price: 300, category: 'Bebida' },
-  { id: '5', name: 'Cerveza Artesanal', price: 550, category: 'Bebida' },
-  { id: '6', name: 'Agua Mineral', price: 200, category: 'Bebida' },
-  { id: '7', name: 'Brownie con Helado', price: 400, category: 'Postre' },
-  { id: '8', name: 'Ensalada de Frutas', price: 350, category: 'Postre' },
-];
 
 export const Icons = {
   Cart: () => (
