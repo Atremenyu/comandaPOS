@@ -19,6 +19,7 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
   const [table, setTable] = useState('');
   const [payment, setPayment] = useState<PaymentMethod>('Efectivo');
   const [showCheckout, setShowCheckout] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
 
   const displayCategories: (Category | 'Todos')[] = ['Todos', ...categories];
 
@@ -39,16 +40,18 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
     setShowCheckout(false);
   };
 
+  const isCartVisible = cart.length > 0;
+
   return (
-    <div className="flex flex-col lg:flex-row h-full relative">
+    <div className="flex flex-col lg:flex-row h-full">
       {/* Product Catalog */}
-      <div className={`flex-grow p-4 overflow-y-auto transition-all ${showCheckout ? 'opacity-50 blur-[1px]' : ''}`}>
-        <div className="mb-6 flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+      <div className={`flex-grow p-2 sm:p-4 overflow-y-auto transition-all ${isCartOpen ? 'opacity-50 blur-[2px] lg:opacity-100 lg:blur-0' : ''}`}>
+        <div className="mb-4 sm:mb-6 flex space-x-2 overflow-x-auto pb-2 scrollbar-hide flex-nowrap">
           {displayCategories.map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`px-5 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all shadow-sm ${
+              className={`px-4 sm:px-5 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all shadow-sm whitespace-nowrap ${
                 activeCategory === cat 
                 ? 'bg-red-600 text-white shadow-red-200' 
                 : 'bg-white text-slate-800 hover:bg-slate-100 border border-slate-200'
@@ -59,23 +62,23 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
           ))}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-4 pb-24 lg:pb-4">
           {filteredProducts.map(product => (
             <button
               key={product.id}
               disabled={showCheckout}
               onClick={() => onAddToCart(product)}
-              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-red-600 transition-all text-left flex flex-col justify-between active:scale-95 group"
+              className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-red-600 transition-all text-left flex flex-col justify-between active:scale-95 group"
             >
               <div>
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-black text-white mb-3 inline-block">
+                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-black text-white mb-2 sm:mb-3 inline-block">
                   {product.category}
                 </span>
-                <h3 className="font-bold text-slate-900 leading-tight group-hover:text-red-600 transition-colors text-base">
+                <h3 className="font-bold text-slate-900 leading-tight group-hover:text-red-600 transition-colors text-sm sm:text-base">
                   {product.name}
                 </h3>
               </div>
-              <p className="mt-4 text-xl font-black text-black">
+              <p className="mt-2 sm:mt-4 text-lg sm:text-xl font-black text-black">
                 ${product.price.toLocaleString()}
               </p>
             </button>
@@ -83,13 +86,26 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
         </div>
       </div>
 
-      {/* Cart Summary & Checkout Overlay */}
+      {/* Slide-out Cart Panel */}
+      <div
+        className={`fixed inset-0 z-30 transition-opacity duration-300 lg:hidden ${
+          isCartOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div
+          className="absolute inset-0 bg-black bg-opacity-50"
+          onClick={() => setIsCartOpen(false)}
+        ></div>
+      </div>
+
       <div className={`
-        fixed lg:static bottom-0 left-0 right-0 z-20 bg-white lg:w-96 border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col shadow-2xl lg:shadow-none
-        transition-all duration-300 ease-in-out
-        ${cart.length > 0 ? (showCheckout ? 'h-[85vh] lg:h-full' : 'h-[60vh] lg:h-full') : 'h-16 lg:h-full'}
+        fixed top-0 right-0 h-full z-40 bg-white w-full max-w-md lg:max-w-none lg:w-96 lg:static lg:z-auto
+        border-l border-slate-200 flex flex-col shadow-2xl lg:shadow-none
+        transform transition-transform duration-300 ease-in-out
+        ${isCartOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0
+        ${isCartVisible ? '' : 'hidden lg:flex'}
       `}>
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white">
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white flex-shrink-0">
           <div className="flex items-center space-x-2 font-black text-black uppercase tracking-tighter">
             <Icons.Cart />
             <span>{showCheckout ? 'Caja / Checkout' : 'Tu Pedido'}</span>
@@ -99,17 +115,20 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
                {cart.length} ITEMS
              </span>
           )}
-          {showCheckout && (
+          {(showCheckout || isCartOpen) && (
             <button 
-              onClick={() => setShowCheckout(false)}
-              className="text-slate-400 hover:text-red-600 p-1 transition"
+              onClick={() => {
+                setShowCheckout(false)
+                setIsCartOpen(false)
+              }}
+              className="text-slate-400 hover:text-red-600 p-1 transition lg:hidden"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
           )}
         </div>
 
-        {cart.length === 0 ? (
+        {!isCartVisible ? (
           <div className="flex-grow flex flex-col items-center justify-center text-slate-400 p-8">
             <div className="mb-4 opacity-10">
                <Icons.Cart />
@@ -253,6 +272,24 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
           </div>
         )}
       </div>
+
+      {isCartVisible && (
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/20 to-transparent pointer-events-none lg:hidden">
+          <button
+            onClick={() => setIsCartOpen(true)}
+            className="w-full bg-black text-white py-4 rounded-2xl font-black text-base uppercase tracking-widest hover:bg-slate-900 transition shadow-2xl active:scale-[0.98] flex items-center justify-between px-6 border-b-4 border-red-600 pointer-events-auto"
+          >
+            <div className='flex items-center space-x-2'>
+              <Icons.Cart />
+              <span>TU PEDIDO</span>
+              <span className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded-full">
+                {cart.length}
+              </span>
+            </div>
+            <span className="text-xl font-black tracking-tighter">${total.toLocaleString()}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

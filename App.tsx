@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [restaurantName, setRestaurantName] = useState('Mi Restaurante');
   const [eventType, setEventType] = useState('Evento Gastronómico');
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -153,6 +154,13 @@ const App: React.FC = () => {
       <header className="bg-black text-white shadow-md flex-shrink-0 z-10 no-print border-b border-red-600">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
+            <button
+              className="lg:hidden text-white"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              aria-label="Open menu"
+            >
+              <Icons.Menu />
+            </button>
             <span className="text-red-600">
               <Icons.ChefHat />
             </span>
@@ -162,7 +170,7 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <nav className="flex space-x-1 sm:space-x-2">
+          <nav className="hidden lg:flex space-x-1 sm:space-x-2">
             {[
               { id: 'pos', icon: <Icons.Cart />, label: 'Venta' },
               { id: 'dispatch', icon: <Icons.ChefHat />, label: 'Cocina', badge: pendingCount },
@@ -190,6 +198,56 @@ const App: React.FC = () => {
           </nav>
         </div>
       </header>
+
+      {/* Slide-out menu */}
+      <div
+        className={`fixed inset-0 z-30 transition-opacity duration-300 ${
+          isMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div
+          className="absolute inset-0 bg-black bg-opacity-50"
+          onClick={() => setIsMenuOpen(false)}
+        ></div>
+        <div
+          className={`relative w-64 h-full bg-black text-white shadow-xl transform transition-transform duration-300 ${
+            isMenuOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="p-4">
+            <h2 className="text-2xl font-bold">Menu</h2>
+            <nav className="mt-8 flex flex-col space-y-2">
+            {[
+              { id: 'pos', icon: <Icons.Cart />, label: 'Venta' },
+              { id: 'dispatch', icon: <Icons.ChefHat />, label: 'Cocina', badge: pendingCount },
+              { id: 'history', icon: <Icons.History />, label: 'Historial' },
+              { id: 'settings', icon: <Icons.Settings />, label: 'Config' }
+            ].map((btn) => (
+              <button
+                key={btn.id}
+                onClick={() => {
+                  setView(btn.id as ViewState)
+                  setIsMenuOpen(false)
+                }}
+                className={`flex items-center space-x-3 p-3 rounded transition-all duration-200 ${
+                  view === btn.id
+                  ? 'bg-red-600 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                {btn.icon}
+                <span className="font-bold">{btn.label}</span>
+                {btn.badge !== undefined && btn.badge > 0 && (
+                  <span className="ml-auto bg-white text-black text-xs font-bold px-2 py-1 rounded-full">
+                    {btn.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+          </div>
+        </div>
+      </div>
 
       <main className="flex-grow overflow-auto">
         <div className="h-full">

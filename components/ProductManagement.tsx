@@ -203,7 +203,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-2 sm:p-6 max-w-4xl mx-auto space-y-4 sm:space-y-6">
       <div className="flex space-x-1 bg-slate-200 p-1 rounded-xl w-fit">
         <button 
           onClick={() => setActiveTab('products')}
@@ -228,7 +228,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
       {activeTab === 'products' && (
         <>
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Menú de Ventas</h2>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter">Menú de Ventas</h2>
             {!isAdding && !editingId && (
               <button 
                 onClick={() => {
@@ -243,9 +243,9 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
           </div>
 
           {(isAdding || editingId) && (
-            <div className="bg-white p-6 rounded-3xl border-2 border-red-600 shadow-xl animate-in zoom-in duration-200">
-              <h3 className="font-black text-black uppercase tracking-widest mb-6 border-b pb-2">{editingId ? 'Editar' : 'Agregar'} Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 border-red-600 shadow-xl animate-in zoom-in duration-200">
+              <h3 className="font-black text-black uppercase tracking-widest mb-4 sm:mb-6 border-b pb-2 text-sm sm:text-base">{editingId ? 'Editar' : 'Agregar'} Item</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Item</label>
                   <input 
@@ -272,16 +272,16 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                   </select>
                 </div>
               </div>
-              <div className="mt-8 flex justify-end space-x-3">
+              <div className="mt-6 sm:mt-8 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-3 gap-2 sm:gap-0">
                 <button 
                   onClick={() => { setIsAdding(false); setEditingId(null); resetProductForm(); }}
-                  className="px-6 py-2 bg-slate-100 text-slate-700 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition"
+                  className="w-full sm:w-auto px-6 py-3 sm:py-2 bg-slate-100 text-slate-700 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition"
                 >
                   Cancelar
                 </button>
                 <button 
                   onClick={handleSaveProduct}
-                  className="px-10 py-2 bg-black text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 shadow-lg"
+                  className="w-full sm:w-auto px-10 py-3 sm:py-2 bg-black text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 shadow-lg"
                 >
                   Guardar
                 </button>
@@ -289,27 +289,29 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
             </div>
           )}
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left">
+          {/* Responsive Product List */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+            {/* Desktop Table */}
+            <table className="w-full text-left hidden lg:table">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Item</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Precio</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Acciones</th>
+                  <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Item</th>
+                  <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría</th>
+                  <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Precio</th>
+                  <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
                 {products.map(product => (
                   <tr key={product.id} className="hover:bg-red-50/30 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-900">{product.name}</td>
-                    <td className="px-6 py-4">
+                    <td className="p-4 font-bold text-slate-900 text-sm">{product.name}</td>
+                    <td className="p-4">
                       <span className="text-[9px] font-black px-2 py-0.5 rounded border border-slate-300 uppercase bg-white text-slate-600">
                         {product.category}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right font-black text-black">${product.price}</td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="p-4 text-right font-black text-black text-sm">${product.price}</td>
+                    <td className="p-4 text-right">
                       <div className="flex justify-end space-x-1">
                         <button onClick={() => startEditProduct(product)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"><Icons.Edit /></button>
                         <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-black hover:bg-slate-100 rounded-lg transition"><Icons.Trash /></button>
@@ -319,14 +321,30 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                 ))}
               </tbody>
             </table>
+
+            {/* Mobile Card List */}
+            <div className="divide-y divide-slate-100 lg:hidden">
+              {products.map(product => (
+                <div key={product.id} className="p-3 flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-slate-900 text-sm">{product.name}</p>
+                    <p className="text-xs font-bold text-black mt-1">${product.price}</p>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button onClick={() => startEditProduct(product)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"><Icons.Edit /></button>
+                    <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-black hover:bg-slate-100 rounded-lg transition"><Icons.Trash /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
 
       {activeTab === 'categories' && (
         <div className="space-y-6">
-          <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Categorías</h2>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter">Categorías</h2>
+          <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm space-y-4 sm:space-y-6">
             <div className="flex space-x-2">
               <input 
                 type="text" 
@@ -364,11 +382,11 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
       {activeTab === 'general' && (
         <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-400 pb-10">
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Ajustes del Negocio</h2>
-            <div className="bg-white p-8 rounded-3xl border-2 border-black shadow-2xl space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter">Ajustes del Negocio</h2>
+            <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 border-black shadow-2xl space-y-6 sm:space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Negocio / Restaurante</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Negocio</label>
                   <div className="relative">
                     <div className="absolute left-3 top-3.5 text-red-600 opacity-50"><Icons.ChefHat /></div>
                     <input 
@@ -393,20 +411,20 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
               </div>
               
-              <div className="pt-4 flex justify-end">
+              <div className="pt-2 sm:pt-4 flex sm:justify-end">
                 <button 
                   onClick={handleSaveGeneral}
-                  className="bg-red-600 text-white px-12 py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] hover:bg-red-700 transition shadow-2xl shadow-red-200"
+                  className="w-full sm:w-auto bg-red-600 text-white px-8 sm:px-12 py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] hover:bg-red-700 transition shadow-2xl shadow-red-200"
                 >
-                  Actualizar Configuración
+                  Actualizar
                 </button>
               </div>
             </div>
           </div>
 
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Respaldo de Base de Datos</h2>
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter">Respaldo de Datos</h2>
+            <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm space-y-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <button 
                   onClick={handleExportData}
@@ -436,7 +454,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
 
               {/* PREVIEW AREA */}
               {preview && (
-                <div className="mt-6 bg-slate-50 rounded-3xl border-2 border-red-600 p-6 animate-in zoom-in duration-300">
+                <div className="mt-6 bg-slate-50 rounded-2xl sm:rounded-3xl border-2 border-red-600 p-4 sm:p-6 animate-in zoom-in duration-300">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-black text-black uppercase tracking-widest text-xs">Previsualización del Respaldo</h4>
                     <button onClick={() => setPreview(null)} className="text-slate-400 hover:text-red-600 transition"><Icons.Trash /></button>
