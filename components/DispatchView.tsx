@@ -31,8 +31,8 @@ const DispatchView: React.FC<DispatchViewProps> = ({ orders, onDeliver, restaura
   }
 
   return (
-    <div className="p-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+    <div className="p-2 sm:p-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 sm:gap-6">
         {sortedOrders.map(order => {
           const isPending = order.status === 'pending';
           const isMostradorTable = order.table === 'Mostrador';
