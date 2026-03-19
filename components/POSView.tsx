@@ -1,25 +1,52 @@
 
-import React, { useState, useMemo } from 'react';
-import { Product, CartItem, Category, PaymentMethod } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Product, CartItem, Category, PaymentMethod, Order, OrderStatus } from '../types';
 import { Icons } from '../constants';
+import { differenceInSeconds, parseISO } from 'date-fns';
 
 interface POSViewProps {
   products: Product[];
   categories: Category[];
   cart: CartItem[];
+  activeOrders: Order[];
   onAddToCart: (p: Product) => void;
   onUpdateQuantity: (id: string, delta: number) => void;
   onUpdateNote: (id: string, note: string) => void;
   onCheckout: (client: string, table: string, payment: PaymentMethod) => void;
+  onUpdateStatus: (id: string, status: OrderStatus) => void;
 }
 
-const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCart, onUpdateQuantity, onUpdateNote, onCheckout }) => {
+const CountdownTimer: React.FC<{ targetDate: string }> = ({ targetDate }) => {
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const calculate = () => {
+      const diff = differenceInSeconds(parseISO(targetDate), new Date());
+      setTimeLeft(diff > 0 ? diff : 0);
+    };
+    calculate();
+    const timer = setInterval(calculate, 1000);
+    return () => clearInterval(timer);
+  }, [targetDate]);
+
+  if (timeLeft <= 0) return <span className="text-red-600 font-black animate-pulse">RETRASADO</span>;
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+  return <span>{minutes}:{seconds.toString().padStart(2, '0')}</span>;
+};
+
+const POSView: React.FC<POSViewProps> = ({
+  products, categories, cart, activeOrders,
+  onAddToCart, onUpdateQuantity, onUpdateNote, onCheckout, onUpdateStatus
+}) => {
   const [activeCategory, setActiveCategory] = useState<Category | 'Todos'>('Todos');
   const [client, setClient] = useState('');
   const [table, setTable] = useState('');
   const [payment, setPayment] = useState<PaymentMethod>('Efectivo');
   const [showCheckout, setShowCheckout] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isMonitorOpen, setIsMonitorOpen] = useState(false);
 
   const displayCategories: (Category | 'Todos')[] = ['Todos', ...categories];
 
@@ -42,8 +69,94 @@ const POSView: React.FC<POSViewProps> = ({ products, categories, cart, onAddToCa
 
   const isCartVisible = cart.length > 0;
 
+  const ordersToMonitor = useMemo(() => {
+    return activeOrders.filter(o => o.status !== 'delivered');
+  }, [activeOrders]);
+
+  const readyOrdersCount = useMemo(() => {
+    return ordersToMonitor.filter(o => o.status === 'ready').length;
+  }, [ordersToMonitor]);
+
   return (
-    <div className="flex flex-col lg:flex-row h-full">
+    <div className="flex flex-col lg:flex-row h-full relative">
+      {/* Monitor Toggle Button */}
+      <button
+        onClick={() => setIsMonitorOpen(true)}
+        className="fixed bottom-24 right-4 z-20 bg-black text-white p-4 rounded-full shadow-2xl border-2 border-red-600 active:scale-95 transition-all"
+      >
+        <div className="relative">
+          <Icons.ChefHat />
+          {ordersToMonitor.length > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-bounce">
+              {ordersToMonitor.length}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* Monitor Overlay */}
+      {isMonitorOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsMonitorOpen(false)}></div>
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-black text-white">
+              <div className="flex items-center space-x-3">
+                <Icons.ChefHat />
+                <h2 className="font-black uppercase tracking-widest text-sm">Monitor de Pedidos</h2>
+              </div>
+              <button onClick={() => setIsMonitorOpen(false)} className="text-slate-400 hover:text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-4 space-y-4">
+              {ordersToMonitor.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                  <Icons.History />
+                  <p className="mt-4 text-xs font-black uppercase tracking-widest">Sin pedidos activos</p>
+                </div>
+              ) : (
+                ordersToMonitor.map(order => (
+                  <div key={order.id} className={`p-4 rounded-2xl border-2 transition-all ${
+                    order.status === 'ready' ? 'border-green-600 bg-green-50' :
+                    order.status === 'accepted' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'
+                  }`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-black text-xs uppercase tracking-tight">{order.client} • {order.table}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">{order.status === 'pending' ? 'Pendiente' : order.status === 'accepted' ? 'En Cocina' : 'LISTO'}</p>
+                      </div>
+                      {order.estimated_ready_at && order.status === 'accepted' && (
+                        <div className="bg-black text-white px-3 py-1 rounded-lg text-[10px] font-black">
+                          <CountdownTimer targetDate={order.estimated_ready_at} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1 mb-4">
+                      {order.items.map((item, idx) => (
+                        <p key={idx} className="text-[10px] font-bold text-slate-600">
+                          {item.quantity}x {item.name}
+                        </p>
+                      ))}
+                    </div>
+
+                    {order.status === 'ready' && (
+                      <button
+                        onClick={() => onUpdateStatus(order.id, 'delivered')}
+                        className="w-full bg-green-600 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-green-700 transition shadow-lg shadow-green-100"
+                      >
+                        Marcar como Entregado
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Product Catalog */}
       <div className={`flex-grow p-2 sm:p-4 overflow-y-auto transition-all ${isCartOpen ? 'opacity-50 blur-[2px] lg:opacity-100 lg:blur-0' : ''}`}>
         <div className="mb-4 sm:mb-6 flex space-x-2 overflow-x-auto pb-2 scrollbar-hide flex-nowrap">

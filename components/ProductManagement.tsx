@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Product, Category, Order } from '../types';
 import { Icons } from '../constants';
+import { api } from '../services/api';
 
 interface ProductManagementProps {
   products: Product[];
@@ -14,6 +15,7 @@ interface ProductManagementProps {
   eventType: string;
   onUpdateSettings: (name: string, type: string) => void;
   onRestoreDatabase: (data: any) => void;
+  onCloseShift: () => void;
 }
 
 interface BackupPreview {
@@ -37,7 +39,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
   onUpdateSettings,
   onRestoreDatabase
 }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'general'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'general' | 'shift'>('products');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,10 +69,11 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
     if (!name || price <= 0 || !category) return;
 
     if (editingId) {
-      setProducts(prev => prev.map(p => 
-        p.id === editingId ? { ...p, name, price, category } : p
-      ));
-      setEditingId(null);
+      const updated = { id: editingId, name, price, category };
+      api.addProduct(updated).then(() => {
+          setProducts(prev => prev.map(p => p.id === editingId ? updated : p));
+          setEditingId(null);
+      });
     } else {
       const newProduct: Product = {
         id: Date.now().toString(),
@@ -78,8 +81,10 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
         price,
         category,
       };
-      setProducts(prev => [...prev, newProduct]);
-      setIsAdding(false);
+      api.addProduct(newProduct).then(() => {
+          setProducts(prev => [...prev, newProduct]);
+          setIsAdding(false);
+      });
     }
     resetProductForm();
   };
@@ -222,6 +227,12 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
           className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition ${activeTab === 'general' ? 'bg-black text-white shadow-sm' : 'text-slate-500 hover:bg-slate-300'}`}
         >
           General
+        </button>
+        <button
+          onClick={() => setActiveTab('shift')}
+          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition ${activeTab === 'shift' ? 'bg-red-600 text-white shadow-sm' : 'text-red-600 hover:bg-red-50'}`}
+        >
+          Turno
         </button>
       </div>
 
@@ -376,6 +387,50 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'shift' && (
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-400">
+           <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter">Control de Turno</h2>
+           <div className="bg-white p-6 sm:p-10 rounded-3xl border-2 border-red-600 shadow-2xl space-y-8 text-center">
+              <div className="mx-auto w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-4">
+                <Icons.Settings />
+              </div>
+              <div>
+                <h3 className="text-xl font-black uppercase tracking-tight">Finalizar Jornada Actual</h3>
+                <p className="text-slate-500 text-xs mt-2 max-w-sm mx-auto font-medium">
+                  Al cerrar el turno, todas las órdenes actuales se archivarán y la pantalla de cocina quedará limpia para el siguiente turno. Se generará un resumen de ventas.
+                </p>
+              </div>
+
+              <div className="pt-4">
+                <button
+                  onClick={() => {
+                    if(confirm('¿Estás seguro de cerrar el turno actual? Esta acción no se puede deshacer.')) {
+                      onCloseShift();
+                    }
+                  }}
+                  className="bg-red-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-[0.2em] hover:bg-red-700 transition shadow-2xl shadow-red-200 active:scale-95"
+                >
+                  CERRAR TURNO Y GENERAR REPORTE
+                </button>
+              </div>
+           </div>
+
+           <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Resumen de Turno Actual (Provisional)</p>
+              <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Órdenes Totales</p>
+                    <p className="text-2xl font-black">{orders.length}</p>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Ventas Totales</p>
+                    <p className="text-2xl font-black text-red-600">${orders.reduce((acc, o) => acc + o.total, 0).toLocaleString()}</p>
+                  </div>
+              </div>
+           </div>
         </div>
       )}
 

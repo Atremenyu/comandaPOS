@@ -5,23 +5,42 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { Order } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface HistoryViewProps {
   orders: Order[];
   restaurantName?: string;
   selectedDate: Date;
-  onDateChange: (date: Date) => void;
+  onDateChange: (date: Date, period: 'day' | 'week' | 'month' | 'year') => void;
   isLoading: boolean;
   onEditOrder: (orderId: string) => void;
 }
 
 const HistoryView: React.FC<HistoryViewProps> = ({ orders, restaurantName, selectedDate, onDateChange, isLoading, onEditOrder }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
 
   const stats = useMemo(() => {
     const total = orders.reduce((acc, o) => acc + o.total, 0);
     const delivered = orders.filter(o => o.status === 'delivered').length;
-    return { total, count: orders.length, delivered };
+
+    // Metrics
+    const productSales: Record<string, number> = {};
+    const paymentMetrics: Record<string, number> = {};
+
+    orders.forEach(order => {
+        paymentMetrics[order.payment] = (paymentMetrics[order.payment] || 0) + order.total;
+        order.items.forEach(item => {
+            productSales[item.name] = (productSales[item.name] || 0) + item.quantity;
+        });
+    });
+
+    const topProducts = Object.entries(productSales)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5);
+
+    return { total, count: orders.length, delivered, topProducts, paymentMetrics };
   }, [orders]);
 
   const renderContent = () => {
@@ -127,21 +146,74 @@ const HistoryView: React.FC<HistoryViewProps> = ({ orders, restaurantName, selec
     );
   };
 
+  const handlePeriodChange = (p: typeof period) => {
+      setPeriod(p);
+      onDateChange(selectedDate, p);
+  };
+
   return (
-    <div className="p-2 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
+    <div className="p-2 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6 pb-20">
+      {/* Period Selection */}
+      <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+        {(['day', 'week', 'month', 'year'] as const).map(p => (
+          <button
+            key={p}
+            onClick={() => handlePeriodChange(p)}
+            className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+              period === p ? 'bg-red-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+            }`}
+          >
+            {p === 'day' ? 'Día' : p === 'week' ? 'Semana' : p === 'month' ? 'Mes' : 'Año'}
+          </button>
+        ))}
+      </div>
+
       {/* Header and Date Picker */}
       <div className="bg-black text-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl border-t-4 border-red-600 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div>
-          <p className="text-slate-400 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em]">Reporte de Ventas</p>
+          <p className="text-slate-400 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em]">
+            Reporte {period === 'day' ? 'Diario' : period === 'week' ? 'Semanal' : period === 'month' ? 'Mensual' : 'Anual'}
+          </p>
           <p className="text-2xl sm:text-3xl font-black mt-1">${stats.total.toLocaleString()}</p>
         </div>
         <div className="w-full sm:w-auto">
           <DatePicker
             selected={selectedDate}
-            onChange={(date: Date) => onDateChange(date)}
-            dateFormat="d 'de' MMMM, yyyy"
+            onChange={(date: Date) => onDateChange(date, period)}
+            dateFormat={period === 'year' ? 'yyyy' : period === 'month' ? 'MMMM, yyyy' : 'd MMM, yyyy'}
+            showMonthYearPicker={period === 'month'}
+            showYearPicker={period === 'year'}
+            locale={es}
             className="bg-slate-800 text-white font-black text-center sm:text-right rounded-lg p-3 w-full border border-slate-700 hover:border-red-600 transition"
           />
+        </div>
+      </div>
+
+      {/* Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-6 rounded-3xl shadow-lg border border-slate-100">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Productos</h3>
+            <div className="space-y-3">
+                {stats.topProducts.map(([name, qty]) => (
+                    <div key={name} className="flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-700">{name}</span>
+                        <span className="text-xs font-black bg-slate-100 px-2 py-1 rounded-lg">{qty} ud.</span>
+                    </div>
+                ))}
+                {stats.topProducts.length === 0 && <p className="text-[10px] text-slate-400 italic">No hay datos</p>}
+            </div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-lg border border-slate-100">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Métodos de Pago</h3>
+            <div className="space-y-3">
+                {Object.entries(stats.paymentMetrics).map(([method, amount]) => (
+                    <div key={method} className="flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-700">{method}</span>
+                        <span className="text-xs font-black text-red-600">${amount.toLocaleString()}</span>
+                    </div>
+                ))}
+                {Object.keys(stats.paymentMetrics).length === 0 && <p className="text-[10px] text-slate-400 italic">No hay datos</p>}
+            </div>
         </div>
       </div>
 
