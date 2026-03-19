@@ -14,7 +14,7 @@ export interface CartItem extends Product {
 }
 
 export type PaymentMethod = 'Efectivo' | 'Tarjeta' | 'Transferencia';
-export type OrderStatus = 'pending' | 'delivered';
+export type OrderStatus = 'pending' | 'accepted' | 'ready' | 'delivered';
 
 export interface Order {
   id: string;
@@ -25,6 +25,7 @@ export interface Order {
   status: OrderStatus;
   total: number;
   items: CartItem[];
+  estimated_ready_at?: string;
 }
 
 export type ViewState = 'pos' | 'dispatch' | 'history' | 'settings';

@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, Order, ViewState, CartItem, PaymentMethod, Category } from './types';
+import { Product, Order, ViewState, CartItem, PaymentMethod, Category, OrderStatus } from './types';
 import { storage } from './services/storage';
-import { supabase } from './services/supabase';
+import { api, socket } from './services/api';
 import { INITIAL_CATEGORIES, Icons } from './constants';
-import { startOfDay, endOfDay } from 'date-fns';
+import { startOfDay, endOfDay, format } from 'date-fns';
 import POSView from './components/POSView';
 import DispatchView from './components/DispatchView';
 import HistoryView from './components/HistoryView';
@@ -29,71 +29,63 @@ const App: React.FC = () => {
   // Load initial data
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch products from Supabase
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('*');
+      try {
+        const productsData = await api.getProducts();
+        setProducts(productsData);
 
-      if (productsError) {
-        console.error('Error fetching products:', productsError);
-      } else {
-        setProducts(productsData || []);
+        const activeOrders = await api.getActiveOrders();
+        setOrders(activeOrders);
+
+        // Fetch today's orders for the history view
+        await fetchOrdersByDate(new Date());
+
+        // Load other data from local storage
+        const savedCategories = storage.getCategories();
+        const savedName = storage.getRestaurantName();
+        const savedType = storage.getEventType();
+
+        setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
+        setRestaurantName(savedName);
+        setEventType(savedType);
+        setIsLoaded(true);
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+        setIsLoaded(true); // Still set to loaded to show UI
       }
-
-      // Fetch today's orders for the history view
-      await fetchOrdersByDate(new Date());
-
-      // Load other data from local storage
-      const savedCategories = storage.getCategories();
-      const savedName = storage.getRestaurantName();
-      const savedType = storage.getEventType();
-
-      setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
-      setRestaurantName(savedName);
-      setEventType(savedType);
-      setIsLoaded(true);
     };
 
     fetchData();
+
+    // Socket listeners
+    socket.on('new-order', (order: Order) => {
+      setOrders(prev => [order, ...prev]);
+    });
+
+    socket.on('order-updated', (updatedOrder: Order) => {
+      setOrders(prev => prev.map(o => o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o));
+      // If we are in history view, we might want to refresh too
+    });
+
+    return () => {
+      socket.off('new-order');
+      socket.off('order-updated');
+    };
   }, []);
 
-  const fetchOrdersByDate = async (date: Date) => {
+  const fetchOrdersByDate = async (date: Date, period: 'day' | 'week' | 'month' | 'year' = 'day') => {
     setIsHistoryLoading(true);
     setSelectedDate(date);
 
-    const start = startOfDay(date);
-    const end = endOfDay(date);
+    try {
+      let formattedDate = format(date, 'yyyy-MM-dd');
+      if (period === 'month') formattedDate = format(date, 'yyyy-MM');
+      if (period === 'year') formattedDate = format(date, 'yyyy');
 
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*, products(*))')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-      .order('created_at', { ascending: false });
-
-    if (error) {
+      const data = await api.getHistory(period, formattedDate);
+      setDailyOrders(data);
+    } catch (error) {
       console.error('Error fetching daily orders:', error);
       setDailyOrders([]);
-    } else {
-      // Map the fetched data to the Order type
-      const formattedOrders: Order[] = data.map((order: any) => ({
-        id: order.id,
-        created_at: order.created_at,
-        client: order.client,
-        table: order.table,
-        payment: order.payment,
-        status: order.status,
-        total: order.total,
-        items: order.order_items.map((item: any) => ({
-          id: item.products.id,
-          name: item.products.name,
-          price: item.price,
-          quantity: item.quantity,
-          category: item.products.category,
-          note: item.note || '',
-        })),
-      }));
-      setDailyOrders(formattedOrders);
     }
     setIsHistoryLoading(false);
   };
@@ -162,85 +154,23 @@ const App: React.FC = () => {
     const finalClient = client.trim() === '' ? 'Mostrador' : client;
     const finalTable = table.trim() === '' ? 'Mostrador' : table;
     const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    const orderId = editingOrderId || crypto.randomUUID();
 
-    if (editingOrderId) {
-      // UPDATE existing order
-      // Step 1: Update the main order details
-      const { data: updatedOrderData, error: updateError } = await supabase
-        .from('orders')
-        .update({ total, client: finalClient, table: finalTable, payment })
-        .eq('id', editingOrderId)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('Error updating order:', updateError);
-        return;
-      }
-
-      // Step 2: Delete old order items
-      const { error: deleteError } = await supabase
-        .from('order_items')
-        .delete()
-        .eq('order_id', editingOrderId);
-
-      if (deleteError) {
-        console.error('Error deleting old items:', deleteError);
-        return;
-      }
-
-      // Step 3: Insert new order items
-      const newOrderItems = cart.map(item => ({
-        order_id: editingOrderId,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price,
-      }));
-
-      const { error: insertError } = await supabase.from('order_items').insert(newOrderItems);
-      if (insertError) {
-        console.error('Error inserting new items:', insertError);
-        return;
-      }
-
-      // Step 4: Update local state and finish
-      await fetchOrdersByDate(selectedDate); // Refresh the history view
-      setOrders(prev => prev.filter(o => o.id !== editingOrderId)); // Remove from pending if it was there
-
-    } else {
-      // CREATE new order (original logic)
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({ total, client: finalClient, table: finalTable, payment, status: 'pending' })
-        .select()
-        .single();
-
-      if (orderError || !orderData) {
-        console.error('Error creating order:', orderError);
-        return;
-      }
-
-      const newOrderId = orderData.id;
-      const orderItems = cart.map(item => ({
-        order_id: newOrderId,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price,
-      }));
-
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) {
-        console.error('Error creating order items:', itemsError);
-        return;
-      }
-
-      const newOrderForState: Order = {
-        id: newOrderId,
-        created_at: orderData.created_at,
-        client: finalClient, table: finalTable, payment,
-        status: 'pending', total, items: [...cart],
+    try {
+      const orderData: Partial<Order> = {
+        id: orderId,
+        client: finalClient,
+        table: finalTable,
+        payment,
+        status: 'pending',
+        total,
+        items: cart,
       };
-      setOrders(prev => [newOrderForState, ...prev]);
+
+      await api.createOrder(orderData);
+      // State will be updated via socket listener 'new-order'
+    } catch (error) {
+      console.error('Error creating order:', error);
     }
 
     setCart([]);
@@ -248,10 +178,22 @@ const App: React.FC = () => {
     setEditingOrderId(null);
   };
 
-  const deliverOrder = (orderId: string) => {
-    setOrders(prev => prev.map(o => 
-      o.id === orderId ? { ...o, status: 'delivered' } : o
-    ));
+  const updateOrderStatus = async (orderId: string, status: OrderStatus, estimatedReadyAt?: string) => {
+    try {
+      await api.updateOrderStatus(orderId, status, estimatedReadyAt);
+      // State will be updated via socket listener 'order-updated'
+    } catch (error) {
+      console.error('Error updating order status:', error);
+    }
+  };
+
+  const loadOrderForEditing = (orderId: string) => {
+    const order = dailyOrders.find(o => o.id === orderId);
+    if (order) {
+      setCart(order.items);
+      setEditingOrderId(order.id);
+      setView('pos');
+    }
   };
 
   const handleUpdateSettings = (name: string, type: string) => {
@@ -259,6 +201,18 @@ const App: React.FC = () => {
     setEventType(type);
     storage.saveRestaurantName(name);
     storage.saveEventType(type);
+  };
+
+  const handleCloseShift = async () => {
+    try {
+      await api.closeShift();
+      setOrders([]); // Clear pending orders in kitchen
+      await fetchOrdersByDate(new Date()); // Refresh history
+      alert('Turno cerrado exitosamente. Los reportes han sido actualizados.');
+    } catch (error) {
+      console.error('Error closing shift:', error);
+      alert('Error al cerrar el turno.');
+    }
   };
 
   if (!isLoaded) {
@@ -379,16 +333,18 @@ const App: React.FC = () => {
               products={products}
               categories={categories}
               cart={cart} 
+              activeOrders={orders}
               onAddToCart={addToCart} 
               onUpdateQuantity={updateCartQuantity}
               onUpdateNote={updateCartNote}
               onCheckout={createOrder}
+              onUpdateStatus={updateOrderStatus}
             />
           )}
           {view === 'dispatch' && (
             <DispatchView 
               orders={orders} 
-              onDeliver={deliverOrder}
+              onUpdateStatus={updateOrderStatus}
               restaurantName={restaurantName}
             />
           )}
@@ -414,6 +370,7 @@ const App: React.FC = () => {
               eventType={eventType}
               onUpdateSettings={handleUpdateSettings}
               onRestoreDatabase={restoreDatabase}
+              onCloseShift={handleCloseShift}
             />
           )}
         </div>
