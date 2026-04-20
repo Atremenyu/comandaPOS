@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, Order, ViewState, CartItem, PaymentMethod, Category } from './types';
+import { Product, Order, ViewState, CartItem, PaymentMethod, Category, KitchenTicket, OrderStatus } from './types';
 import { storage } from './services/storage';
 import { supabase } from './services/supabase';
 import { INITIAL_CATEGORIES, Icons } from './constants';
@@ -14,7 +14,8 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('pos');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]); // For pending orders in dispatch
+  const [orders, setOrders] = useState<Order[]>([]); // Active orders (open, preparing, ready)
+  const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
   const [dailyOrders, setDailyOrders] = useState<Order[]>([]); // For the history view
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -40,6 +41,10 @@ const App: React.FC = () => {
         setProducts(productsData || []);
       }
 
+      // Fetch active orders and tickets
+      await fetchActiveOrders();
+      await fetchActiveTickets();
+
       // Fetch today's orders for the history view
       await fetchOrdersByDate(new Date());
 
@@ -56,6 +61,74 @@ const App: React.FC = () => {
 
     fetchData();
   }, []);
+
+  const formatSupabaseOrder = (order: any): Order => ({
+    id: order.id,
+    created_at: order.created_at,
+    client: order.client,
+    table: order.table,
+    payment: order.payment,
+    status: order.status,
+    total: order.total,
+    apply_loyalty: order.apply_loyalty || false,
+    apply_discount: order.apply_discount || false,
+    loyalty_reward: order.loyalty_reward,
+    discount_amount: order.discount_amount,
+    items: order.order_items.map((item: any) => ({
+      id: item.products?.id || item.product_id,
+      name: item.products?.name || 'Producto Desconocido',
+      price: item.price,
+      quantity: item.quantity,
+      category: item.products?.category || 'General',
+      note: item.note || '',
+      isPersisted: true
+    })),
+  });
+
+  const fetchActiveOrders = async () => {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*, products(*))')
+      .in('status', ['open', 'preparing', 'ready'])
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching active orders:', error);
+    } else {
+      setOrders(data.map(formatSupabaseOrder));
+    }
+  };
+
+  const fetchActiveTickets = async () => {
+    const { data, error } = await supabase
+      .from('kitchen_tickets')
+      .select('*, kitchen_ticket_items(*, products(*))')
+      .in('status', ['pending', 'preparing', 'ready'])
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching active tickets:', error);
+    } else {
+      const formattedTickets: KitchenTicket[] = data.map((ticket: any) => ({
+        id: ticket.id,
+        order_id: ticket.order_id,
+        status: ticket.status,
+        created_at: ticket.created_at,
+        started_at: ticket.started_at,
+        ready_at: ticket.ready_at,
+        estimated_time: ticket.estimated_time,
+        items: ticket.kitchen_ticket_items.map((item: any) => ({
+          id: item.products?.id || item.product_id,
+          name: item.products?.name || 'Producto Desconocido',
+          price: item.price,
+          quantity: item.quantity,
+          category: item.products?.category || 'General',
+          note: item.note || '',
+        })),
+      }));
+      setKitchenTickets(formattedTickets);
+    }
+  };
 
   const fetchOrdersByDate = async (date: Date) => {
     setIsHistoryLoading(true);
@@ -75,25 +148,7 @@ const App: React.FC = () => {
       console.error('Error fetching daily orders:', error);
       setDailyOrders([]);
     } else {
-      // Map the fetched data to the Order type
-      const formattedOrders: Order[] = data.map((order: any) => ({
-        id: order.id,
-        created_at: order.created_at,
-        client: order.client,
-        table: order.table,
-        payment: order.payment,
-        status: order.status,
-        total: order.total,
-        items: order.order_items.map((item: any) => ({
-          id: item.products.id,
-          name: item.products.name,
-          price: item.price,
-          quantity: item.quantity,
-          category: item.products.category,
-          note: item.note || '',
-        })),
-      }));
-      setDailyOrders(formattedOrders);
+      setDailyOrders(data.map(formatSupabaseOrder));
     }
     setIsHistoryLoading(false);
   };
@@ -125,8 +180,8 @@ const App: React.FC = () => {
   };
 
   const pendingCount = useMemo(() => 
-    orders.filter(o => o.status === 'pending').length, 
-  [orders]);
+    kitchenTickets.filter(t => t.status === 'pending' || t.status === 'preparing').length,
+  [kitchenTickets]);
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -156,20 +211,32 @@ const App: React.FC = () => {
     ));
   };
 
-  const createOrder = async (client: string, table: string, payment: PaymentMethod) => {
+  const createOrder = async (
+    client: string,
+    table: string,
+    payment: PaymentMethod,
+    status: OrderStatus = 'open',
+    loyalty: boolean = false,
+    discount: boolean = false
+  ) => {
     if (cart.length === 0) return;
 
     const finalClient = client.trim() === '' ? 'Mostrador' : client;
     const finalTable = table.trim() === '' ? 'Mostrador' : table;
     const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-    if (editingOrderId) {
+    let orderId = editingOrderId;
+    let orderData: any = null;
+
+    if (orderId) {
       // UPDATE existing order
-      // Step 1: Update the main order details
-      const { data: updatedOrderData, error: updateError } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from('orders')
-        .update({ total, client: finalClient, table: finalTable, payment })
-        .eq('id', editingOrderId)
+        .update({
+          total, client: finalClient, table: finalTable, payment, status,
+          apply_loyalty: loyalty, apply_discount: discount
+        })
+        .eq('id', orderId)
         .select()
         .single();
 
@@ -177,82 +244,135 @@ const App: React.FC = () => {
         console.error('Error updating order:', updateError);
         return;
       }
+      orderData = updated;
 
-      // Step 2: Delete old order items
+      // For 'open' tables, we don't delete everything, we manage increments.
+      // But for simplicity in this implementation, if it's a direct checkout ('delivered'),
+      // we update everything.
       const { error: deleteError } = await supabase
         .from('order_items')
         .delete()
-        .eq('order_id', editingOrderId);
+        .eq('order_id', orderId);
 
       if (deleteError) {
         console.error('Error deleting old items:', deleteError);
         return;
       }
-
-      // Step 3: Insert new order items
-      const newOrderItems = cart.map(item => ({
-        order_id: editingOrderId,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price,
-      }));
-
-      const { error: insertError } = await supabase.from('order_items').insert(newOrderItems);
-      if (insertError) {
-        console.error('Error inserting new items:', insertError);
-        return;
-      }
-
-      // Step 4: Update local state and finish
-      await fetchOrdersByDate(selectedDate); // Refresh the history view
-      setOrders(prev => prev.filter(o => o.id !== editingOrderId)); // Remove from pending if it was there
-
     } else {
-      // CREATE new order (original logic)
-      const { data: orderData, error: orderError } = await supabase
+      // CREATE new order
+      const { data: created, error: orderError } = await supabase
         .from('orders')
-        .insert({ total, client: finalClient, table: finalTable, payment, status: 'pending' })
+        .insert({
+          total, client: finalClient, table: finalTable, payment, status,
+          apply_loyalty: loyalty, apply_discount: discount
+        })
         .select()
         .single();
 
-      if (orderError || !orderData) {
+      if (orderError || !created) {
         console.error('Error creating order:', orderError);
         return;
       }
-
-      const newOrderId = orderData.id;
-      const orderItems = cart.map(item => ({
-        order_id: newOrderId,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price,
-      }));
-
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) {
-        console.error('Error creating order items:', itemsError);
-        return;
-      }
-
-      const newOrderForState: Order = {
-        id: newOrderId,
-        created_at: orderData.created_at,
-        client: finalClient, table: finalTable, payment,
-        status: 'pending', total, items: [...cart],
-      };
-      setOrders(prev => [newOrderForState, ...prev]);
+      orderData = created;
+      orderId = created.id;
     }
 
+    // Insert order items
+    const orderItems = cart.map(item => ({
+      order_id: orderId,
+      product_id: item.id,
+      quantity: item.quantity,
+      price: item.price,
+      note: item.note
+    }));
+
+    const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+    if (itemsError) {
+      console.error('Error creating order items:', itemsError);
+      return;
+    }
+
+    // If it's a table order being sent to kitchen
+    if (status === 'open') {
+       const unpersistedItems = cart.filter(item => !item.isPersisted);
+       if (unpersistedItems.length > 0) {
+         await sendToKitchen(orderId!, unpersistedItems);
+       }
+    }
+
+    // Refresh state
+    await fetchActiveOrders();
+    await fetchActiveTickets();
+    await fetchOrdersByDate(selectedDate);
+
     setCart([]);
-    setView('dispatch');
+    setView(status === 'open' ? 'dispatch' : 'history');
     setEditingOrderId(null);
   };
 
-  const deliverOrder = (orderId: string) => {
-    setOrders(prev => prev.map(o => 
-      o.id === orderId ? { ...o, status: 'delivered' } : o
-    ));
+  const sendToKitchen = async (orderId: string, items: CartItem[]) => {
+    // Create a new Kitchen Ticket (Option A)
+    const { data: ticketData, error: ticketError } = await supabase
+      .from('kitchen_tickets')
+      .insert({ order_id: orderId, status: 'pending' })
+      .select()
+      .single();
+
+    if (ticketError || !ticketData) {
+      console.error('Error creating kitchen ticket:', ticketError);
+      return;
+    }
+
+    const ticketItems = items.map(item => ({
+      kitchen_ticket_id: ticketData.id,
+      product_id: item.id,
+      quantity: item.quantity,
+      price: item.price,
+      note: item.note
+    }));
+
+    const { error: itemsError } = await supabase.from('kitchen_ticket_items').insert(ticketItems);
+    if (itemsError) {
+      console.error('Error creating kitchen ticket items:', itemsError);
+    }
   };
+
+  const updateOrderStatus = async (orderId: string, newStatus: OrderStatus, extraData: Partial<Order> = {}) => {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus, ...extraData })
+      .eq('id', orderId);
+
+    if (error) {
+      console.error(`Error updating order ${orderId} to ${newStatus}:`, error);
+      return;
+    }
+
+    await fetchActiveOrders();
+    await fetchOrdersByDate(selectedDate);
+  };
+
+  const updateTicketStatus = async (ticketId: string, newStatus: KitchenTicket['status'], extraData: Partial<KitchenTicket> = {}) => {
+    const { error } = await supabase
+      .from('kitchen_tickets')
+      .update({ status: newStatus, ...extraData })
+      .eq('id', ticketId);
+
+    if (error) {
+      console.error(`Error updating ticket ${ticketId} to ${newStatus}:`, error);
+      return;
+    }
+
+    await fetchActiveTickets();
+  };
+
+  const loadOrderForEditing = (order: Order) => {
+    setCart(order.items);
+    setEditingOrderId(order.id);
+    setView('pos');
+  };
+
+  const loadTableOrder = loadOrderForEditing;
 
   const handleUpdateSettings = (name: string, type: string) => {
     setRestaurantName(name);
@@ -383,12 +503,15 @@ const App: React.FC = () => {
               onUpdateQuantity={updateCartQuantity}
               onUpdateNote={updateCartNote}
               onCheckout={createOrder}
+              openOrders={orders.filter(o => o.status === 'open' || o.status === 'preparing' || o.status === 'ready')}
+              onUpdateStatus={updateOrderStatus}
+              onLoadOrder={loadTableOrder}
             />
           )}
           {view === 'dispatch' && (
             <DispatchView 
-              orders={orders} 
-              onDeliver={deliverOrder}
+              tickets={kitchenTickets}
+              onUpdateStatus={updateTicketStatus}
               restaurantName={restaurantName}
             />
           )}
